@@ -36,8 +36,6 @@ services:
     env_file:
       - ./hadoop.env
 
-  
-
   historyserver:
     image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
     container_name: historyserver
@@ -49,7 +47,18 @@ services:
     env_file:
       - ./hadoop.env
 
+  ingestion:
+    build:
+      context: ./ingestion
+      dockerfile: Dockerfile
+    container_name: ingestion
+    restart: always
+    depends_on:
+      - namenode
+
+
 volumes:
   hadoop_namenode:
   hadoop_datanode:
   hadoop_historyserver:
+  mongo_data:
