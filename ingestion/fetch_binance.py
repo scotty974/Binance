@@ -3,7 +3,6 @@ import pandas as pd
 import os 
 import json
 from hdfs import InsecureClient
-from inser_mongo import insert_into_mongo
 
 # Connexion WebHDFS
 client = InsecureClient("http://namenode:9870", user="hadoop")
@@ -23,8 +22,6 @@ if __name__ == "__main__":
     with open(filename, "w") as f:
         json.dump(data, f, indent=2)
     
-    # Insertion dans MongoDB
-    insert_into_mongo(data)
     
     # HDFS path complet
     hdfs_path = f"/binance/raw/binance_{timestamp}.json"
