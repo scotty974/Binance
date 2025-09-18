@@ -1,0 +1,1 @@
+*/10 * * * * root python /app/fetch_binance.py >> /var/log/binance.log 2>&1
