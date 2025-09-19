@@ -1,0 +1,24 @@
+# Spark et Big Data
+pyspark>=3.4.0
+findspark>=2.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# API et HTTP
+requests>=2.28.0
+
+# Base de données
+pymongo>=4.0.0
+
+# HDFS (alternative compatible)
+hdfs>=2.7.0
+
+# Configuration
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+
+# Visualisation Dashboard
+streamlit>=1.28.0
+plotly>=5.15.0

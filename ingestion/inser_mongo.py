@@ -1,7 +1,7 @@
 from pymongo import MongoClient
 
 # --- Configuration MongoDB ---
-MONGO_URI = "mongodb://db:27017"
+MONGO_URI = "mongodb://db:27017"  # Port interne du container (reste 27017)
 MONGO_DB = "binance_db"
 MONGO_COLLECTION = "ticker_24h"
 
