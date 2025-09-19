@@ -15,18 +15,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BinanceSparkAnalytics:
-    def __init__(self, mongo_port=27018):
+    def __init__(self, mongo_port=27018, use_hdfs=False, json_file=None):
         """
         Analyseur Spark pour données Binance
         """
         self.mongo_uri = f"mongodb://localhost:{mongo_port}/"
         self.db_name = "binance_analytics"
+        self.use_hdfs = use_hdfs
+        self.json_file = json_file
+        self.hdfs_path = "hdfs://localhost:9000/binance/raw/"
         
     def fetch_binance_data(self):
         """
+        Récupère les données depuis l'API Binance, HDFS ou fichier JSON local
+        """
+        if self.json_file:
+            return self.load_from_json_file()
+        elif self.use_hdfs:
+            return self.load_from_hdfs()
+        else:
+            return self.fetch_from_api()
+    
+    def fetch_from_api(self):
+        """
         Récupère les données depuis l'API Binance
         """
-        logger.info("📡 Fetching Binance market data...")
+        logger.info("📡 Fetching Binance market data from API...")
         
         try:
             url = "https://api.binance.com/api/v3/ticker/24hr"
@@ -34,14 +48,112 @@ class BinanceSparkAnalytics:
             
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"   ✅ {len(data)} symbols fetched")
+                logger.info(f"   ✅ {len(data)} symbols fetched from API")
                 return data
             else:
                 logger.error(f"❌ API Error: {response.status_code}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Error fetching data: {e}")
+            logger.error(f"❌ Error fetching from API: {e}")
+            return None
+    
+    def load_from_hdfs(self):
+        """
+        Charge les données depuis HDFS avec Spark
+        """
+        logger.info("📥 Loading Binance data from HDFS...")
+        
+        try:
+            from pyspark.sql import SparkSession
+            
+            # Initialiser Spark avec configuration HDFS
+            spark = SparkSession.builder \
+                .appName("BinanceHDFSLoader") \
+                .master("local[*]") \
+                .config("spark.sql.adaptive.enabled", "true") \
+                .config("spark.hadoop.fs.defaultFS", "hdfs://localhost:9000") \
+                .config("spark.hadoop.dfs.client.use.datanode.hostname", "false") \
+                .config("spark.hadoop.dfs.datanode.use.datanode.hostname", "false") \
+                .getOrCreate()
+            
+            spark.sparkContext.setLogLevel("WARN")
+            
+            # Lire les fichiers JSON depuis HDFS
+            logger.info(f"   📂 Reading from: {self.hdfs_path}")
+            
+            try:
+                # Essayer de lire tous les fichiers JSON
+                df = spark.read.option("multiline", "true").json(f"{self.hdfs_path}*.json")
+                
+                if df.count() > 0:
+                    # Convertir en liste de dictionnaires (comme l'API)
+                    data = df.collect()
+                    data_list = [row.asDict() for row in data]
+                    
+                    logger.info(f"   ✅ {len(data_list)} records loaded from HDFS")
+                    spark.stop()
+                    return data_list
+                else:
+                    logger.warning("   ⚠️ No data found in HDFS")
+                    spark.stop()
+                    return None
+                    
+            except Exception as hdfs_error:
+                logger.error(f"   ❌ HDFS read error: {hdfs_error}")
+                
+                # Fallback: essayer un fichier spécifique
+                try:
+                    logger.info("   🔄 Trying specific file pattern...")
+                    df = spark.read.option("multiline", "true").json(f"{self.hdfs_path}binance_*.json")
+                    
+                    if df.count() > 0:
+                        data = df.collect()
+                        data_list = [row.asDict() for row in data]
+                        logger.info(f"   ✅ {len(data_list)} records loaded from specific files")
+                        spark.stop()
+                        return data_list
+                        
+                except Exception as e2:
+                    logger.error(f"   ❌ Fallback failed: {e2}")
+                
+                spark.stop()
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Error loading from HDFS: {e}")
+            return None
+    
+    def load_from_json_file(self):
+        """
+        Charge les données depuis un fichier JSON local (simulation HDFS)
+        """
+        logger.info(f"📁 Loading Binance data from JSON file: {self.json_file}")
+        
+        try:
+            import glob
+            
+            # Résoudre les wildcards si nécessaire
+            if '*' in self.json_file:
+                matching_files = glob.glob(self.json_file)
+                if not matching_files:
+                    logger.error(f"❌ No files found matching pattern: {self.json_file}")
+                    return None
+                
+                # Prendre le fichier le plus récent
+                actual_file = sorted(matching_files)[-1]
+                logger.info(f"   📂 Using file: {actual_file}")
+            else:
+                actual_file = self.json_file
+            
+            with open(actual_file, 'r') as f:
+                data = json.load(f)
+            
+            logger.info(f"   ✅ {len(data)} records loaded from JSON file")
+            return data
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading JSON file: {e}")
             return None
     
     def clean_and_filter_data(self, data):
@@ -275,7 +387,28 @@ def main():
     """
     Point d'entrée principal
     """
-    analyzer = BinanceSparkAnalytics()
+    import sys
+    
+    # Vérifier les arguments
+    use_hdfs = "--hdfs" in sys.argv
+    json_file = None
+    
+    # Chercher un argument --json-file
+    for i, arg in enumerate(sys.argv):
+        if arg == "--json-file" and i + 1 < len(sys.argv):
+            json_file = sys.argv[i + 1]
+            break
+    
+    if json_file:
+        logger.info(f"🔥 Using JSON file mode: {json_file}")
+        analyzer = BinanceSparkAnalytics(json_file=json_file)
+    elif use_hdfs:
+        logger.info("🔥 Using HDFS mode")
+        analyzer = BinanceSparkAnalytics(use_hdfs=True)
+    else:
+        logger.info("🔥 Using API mode (default)")
+        analyzer = BinanceSparkAnalytics(use_hdfs=False)
+    
     success = analyzer.run_analysis()
     return 0 if success else 1
 
